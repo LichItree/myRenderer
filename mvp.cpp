@@ -39,10 +39,10 @@ void set_viewport(int x, int y, int w, int h)
 {
     viewport[0][3] = x + w / 2.f;
     viewport[1][3] = y + h / 2.f;
-    viewport[2][3] = 255.0 / 2.f;
+    viewport[2][3] = depth / 2.f;
     viewport[0][0] = w / 2.f;
     viewport[1][1] = h / 2.f;
-    viewport[2][2] = 255.0 / 2.f;
+    viewport[2][2] = depth / 2.f;
 }
 Vec3f barycentric(Vec3f *pts, Vec3f P)
 {
@@ -51,7 +51,7 @@ Vec3f barycentric(Vec3f *pts, Vec3f P)
         return Vec3f(-1, 1, 1);
     return Vec3f(1.f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
 }
-void triangle(Vec3f *pts, IShader &shader, TGAImage &image, TGAImage &zbuffer) {
+void triangle(Vec3f *pts, IShader &shader, TGAImage &image, float* zbuffer) {
     int min_X = std::floor(std::min(pts[0][0], std::min(pts[1][0], pts[2][0])));
     int min_Y = std::floor(std::min(pts[0][1], std::min(pts[1][1], pts[2][1])));
     int max_X = std::ceil(std::max(pts[0][0], std::max(pts[1][0], pts[2][0])));
@@ -68,11 +68,11 @@ void triangle(Vec3f *pts, IShader &shader, TGAImage &image, TGAImage &zbuffer) {
             if (bcentric.x < 0 || bcentric.y < 0 || bcentric.z < 0)
                 continue;
             P.z = bcentric.x * pts[0].z + bcentric.y * pts[1].z + bcentric.z * pts[2].z;
-            if (zbuffer.get(P.x, P.y)[0] > P.z)
+            if (zbuffer[int(P.x+P.y*image.get_width())] > P.z)
                  continue;
             bool discard = shader.fragment(bcentric, color);
             if (!discard) {
-                zbuffer.set(P.x, P.y, TGAColor(P.z));
+                zbuffer[int(P.x+P.y*image.get_width())] = P.z;
                 image.set(P.x, P.y, color);
             }
         }
