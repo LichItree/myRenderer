@@ -3,89 +3,130 @@
 #include "model.h"
 #include "mvp.h"
 #include <iostream>
-
-const TGAColor white = TGAColor(255, 255, 255, 255);
-const TGAColor red   = TGAColor(255, 0,   0,   255);
-const TGAColor green = TGAColor(0,   255, 0,   255);
 Model *model = NULL;
 const int width  = 800;
 const int height = 800;
+Vec3f light_dir(1,1,1);
+Vec3f       eye(0,-1,3);
+//Vec3f       eye(1,1,3);
+Vec3f    center(0,0,0);
+Vec3f        up(0,1,0);
+float angle = 0.0;
 
-void line(Vec2i p0, Vec2i p1, TGAImage &image, TGAColor color) {
-    bool steep = false;
-    if (std::abs(p0.x-p1.x)<std::abs(p0.y-p1.y)) {
-        std::swap(p0.x, p0.y);
-        std::swap(p1.x, p1.y);
-        steep = true;
+struct Shader0: public IShader{
+    Vec3f varying_intensity; 
+    virtual Vec3f vertex(int iface, int nthvert) {
+        varying_intensity[nthvert] = std::max(0.f, model->normal(iface, nthvert)*light_dir); 
+        Vec4f gl_Vertex = v3tov4(model->vert(iface, nthvert));
+        return v4tov3(viewport*projection*view*modelTras*gl_Vertex);
     }
-    if (p0.x>p1.x) {
-        std::swap(p0, p1);
+    virtual bool fragment(Vec3f bar, TGAColor &color) {
+        float intensity = varying_intensity*bar;   // interpolate intensity for the current pixel    
+        color = TGAColor(255,255,255)*intensity; 
+        return false;                               
     }
-    for (int x=p0.x; x<=p1.x; x++) {
-        float t = (x-p0.x)/(float)(p1.x-p0.x);
-        int y = p0.y*(1.-t) + p1.y*t;
-        if (steep) {
-            image.set(y, x, color);
-        } else {
-            image.set(x, y, color);
-        }
+};
+struct Shader1 : public IShader {
+    Vec3f          varying_intensity; // written by vertex shader, read by fragment shader
+    mat<2,3,float> varying_uv;        // same as above
+    virtual Vec3f vertex(int iface, int nthvert) {
+        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
+        varying_intensity[nthvert] = std::max(0.f, model->normal(iface, nthvert)*light_dir); // get diffuse lighting intensity
+        Vec4f gl_Vertex = v3tov4(model->vert(iface, nthvert));
+        return v4tov3(viewport*projection*view*modelTras*gl_Vertex);
     }
-}
+    virtual bool fragment(Vec3f bar, TGAColor &color) {
+        Vec2f uv = varying_uv*bar;                 // interpolate uv for the current pixel
+        float intensity = varying_intensity*bar;   // interpolate intensity for the current pixel
+        color = model->diffuse(uv)*intensity;      
+        return false;                               
+    }
+};
+struct Shader2 : public IShader {
+    mat<2,3,float> varying_uv;  // same as above
+    mat<4,4,float> uniform_M;   //  Projection*ModelView
+    mat<4,4,float> uniform_MIT; // (Projection*ModelView).invert_transpose()
+    virtual Vec3f vertex(int iface, int nthvert) {
+        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
+        Vec4f gl_Vertex = v3tov4(model->vert(iface, nthvert));
+        return v4tov3(viewport*projection*view*modelTras*gl_Vertex);
+    }
+    virtual bool fragment(Vec3f bar, TGAColor &color) {
+        Vec2f uv = varying_uv*bar; 
 
-Vec3f barycentric(Vec3f* pts,Vec3i P){
-    Vec3f u = Vec3f(pts[2][0]-pts[0][0], pts[1][0]-pts[0][0], pts[0][0]-P[0])^Vec3f(pts[2][1]-pts[0][1], pts[1][1]-pts[0][1], pts[0][1]-P[1]);
-    if (std::abs(u[2])<1) return Vec3f(-1,1,1);
-    return Vec3f(1.f-(u.x+u.y)/u.z, u.y/u.z, u.x/u.z);
-}
+        Vec3f n = v4tov3(uniform_MIT*v3tov4(model->normal(uv))).normalize();
+        Vec3f l = v4tov3(uniform_M  *v3tov4(light_dir        )).normalize();
+        float intensity = std::max(0.f, n*l);
 
-void triangle(const mat<4,4>& MVP,Vec2f* text_coords,float* zbuffer,Vec3f pts[3], TGAImage &image,TGAImage &textrueImage, TGAColor color) { 
-    mat<4,4> mvp = MVP;
-    mat<4,4> beforeMVP = mat<4,4>::identity();
-    mat<4,4> afterMVP = mat<4,4>::identity();
-    beforeMVP.set_row(0,{pts[0][0],pts[0][1],pts[0][2],1});
-    beforeMVP.set_row(1,{pts[1][0],pts[1][1],pts[1][2],1});
-    beforeMVP.set_row(2,{pts[2][0],pts[2][1],pts[2][2],1});
-    beforeMVP.set_row(3,{1,1,1,1});
-    afterMVP = mvp*beforeMVP;
-    std::cout<<afterMVP;
-    //pts[0] = {1,1,1};
-    //pts[1] = {mvp[1][0],mvp[1][1],mvp[1][2]};
-    //std::cout<< pts[1];
-    //pts[2] = {mvp[2][0],mvp[2][1],mvp[2][2]};
-   // std::cout<<pts[0];
-   
-    //pts[0][0]=afterMVP[0][0]/afterMVP[0][3];
-    //pts[0][1]=afterMVP[0][1];
-    //pts[0][2]=afterMVP[0][0]/afterMVP[0][3];
+        color = model->diffuse(uv)*intensity;      
+        return false;                               
+    }
+};
+struct Shader3 : public IShader {
+    mat<2,3,float> varying_uv;  // same as above
+    mat<4,4,float> uniform_M;   //  Projection*ModelView
+    mat<4,4,float> uniform_MIT; // (Projection*ModelView).invert_transpose()
 
-    //afterMVP[0][1]/afterMVP[0][3],afterMVP[0][2]/afterMVP[0][3]};
-    //pts[1] = {afterMVP[1][0]/afterMVP[1][3],afterMVP[1][1]/afterMVP[1][3],afterMVP[1][2]/afterMVP[1][3]};
-    //pts[2] = {afterMVP[2][0]/afterMVP[2][3],afterMVP[2][1]/afterMVP[2][3],afterMVP[2][2]/afterMVP[2][3]};
-    
-    int min_X = std::floor(std::min(pts[0][0],std::min(pts[1][0],pts[2][0])));
-    int min_Y = std::floor(std::min(pts[0][1],std::min(pts[1][1],pts[2][1])));
-    int max_X = std::ceil(std::max(pts[0][0],std::max(pts[1][0],pts[2][0])));
-    int max_Y = std::ceil(std::max(pts[0][1],std::max(pts[1][1],pts[2][1])));
-    Vec3i P; 
-    Vec3f uv; 
-    for(int x = min_X; x<max_X+1;x++){
-       for(int y = min_Y; y<max_Y+1;y++){
-            P.x = x;
-            P.y = y;
-            Vec3f bcentric  = barycentric(pts, P); 
-            if (bcentric.x<0 || bcentric.y<0 || bcentric.z<0) continue; 
-            P.z = bcentric.x*pts[0].z+bcentric.y*pts[1].z+bcentric.z*pts[2].z;
-            uv.x = bcentric.x*text_coords[0].x+bcentric.y*text_coords[1].x+bcentric.z*text_coords[2].x;
-            uv.y = bcentric.x*text_coords[0].y+bcentric.y*text_coords[1].y+bcentric.z*text_coords[2].y;
-            
-            if(zbuffer[int(P.x+P.y*width)]<P.z){
-                zbuffer[int(P.x+P.y*width)]=P.z;
-                color = textrueImage.get(uv.x*1024,uv.y*1024);
-                image.set(P.x, P.y, color); 
-            }
-        } 
-    } 
-} 
+    virtual Vec3f vertex(int iface, int nthvert) {
+        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
+        Vec4f gl_Vertex = v3tov4(model->vert(iface, nthvert));
+        return v4tov3(viewport*projection*view*modelTras*gl_Vertex);
+    }
+
+    virtual bool fragment(Vec3f bar, TGAColor &color) {
+        Vec2f uv = varying_uv*bar;
+        Vec3f n = v4tov3(uniform_MIT*v3tov4(model->normal(uv))).normalize();
+        Vec3f l = v4tov3(uniform_M  *v3tov4(light_dir        )).normalize();
+        Vec3f r = (n*(n*l*2.f) - l).normalize();   // reflected light
+        float spec = pow(std::max(r.z, 0.0f), model->specular(uv));
+        float diff = std::max(0.f, n*l);
+        TGAColor c = model->diffuse(uv);
+        color = c;
+        for (int i=0; i<3; i++) color[i] = std::min<float>(5 + c[i]*(diff + .6*spec), 255);
+        return false;
+    }
+};
+struct Shader : public IShader {
+    mat<2,3,float> varying_uv;  // triangle uv coordinates, written by the vertex shader, read by the fragment shader
+    mat<3,3,float> varying_nrm; // normal per vertex to be interpolated by FS
+    mat<3,3,float> ndc_tri;     // triangle in normalized device coordinates
+
+    virtual Vec3f vertex(int iface, int nthvert) {
+        varying_uv.set_col(nthvert, model->uv(iface, nthvert));
+        varying_nrm.set_col(nthvert, proj<3>((projection*view*modelTras).invert_transpose()*embed<4>(model->normal(iface, nthvert), 0.f)));//invert_transpose() zhuanzhi(T) and qiuni(-1)
+        Vec4f gl_Vertex = projection*view*modelTras*v3tov4(model->vert(iface, nthvert));
+        ndc_tri.set_col(nthvert, v4tov3(gl_Vertex));
+        return v4tov3(viewport*gl_Vertex);
+    }
+
+    virtual bool fragment(Vec3f bar, TGAColor &color) {
+        Vec3f bn = (varying_nrm*bar).normalize();
+        Vec2f uv = varying_uv*bar;
+
+        mat<3,3,float> A;
+        A[0] = ndc_tri.col(1) - ndc_tri.col(0);
+        A[1] = ndc_tri.col(2) - ndc_tri.col(0);
+        A[2] = bn;
+
+        mat<3,3,float> AI = A.invert();//A(-1)
+
+        Vec3f i = AI * Vec3f(varying_uv[0][1] - varying_uv[0][0], varying_uv[0][2] - varying_uv[0][0], 0);
+        Vec3f j = AI * Vec3f(varying_uv[1][1] - varying_uv[1][0], varying_uv[1][2] - varying_uv[1][0], 0);
+
+        mat<3,3,float> B;
+        B.set_col(0, i.normalize());
+        B.set_col(1, j.normalize());
+        B.set_col(2, bn);
+
+        Vec3f n = (B*model->normal(uv)).normalize();
+
+        float diff = std::max(0.f, n*light_dir);
+        color = model->diffuse(uv)*diff;
+
+        return false;
+    }
+};
+
 
 int main(int argc, char** argv) {
     if (2==argc) {
@@ -94,42 +135,27 @@ int main(int argc, char** argv) {
         model = new Model("obj/african_head.obj");
     }
     TGAImage image(width, height, TGAImage::RGB);
-    TGAImage textrueImage(1024, 1024, TGAImage::RGB);;
-    model->load_texture("obj/african_head_diffuse.tga",textrueImage);
-    Vec3f light_dir(0,0,-1);
-    float zbuffer[width*height];
-    for (int i=width*height;i>0; i--){
-        zbuffer[i] = -std::numeric_limits<float>::max();
-    };
-    vec3 eye_pos = {0, 0, 5};
-    float angle = 30.0;
-    mvpTransform transformMVP;
-    transformMVP.set_model(angle);
-    transformMVP.set_view(eye_pos);
-    transformMVP.set_projection(45, 1, 0.1, 50);
-    mat<4,4> mvp = transformMVP.get_mvp_Mat();
+    set_model(angle);
+    set_view(eye, center, up);
+    set_projection(-1.f/(eye-center).norm());
+    set_viewport(width/8, height/8, width*3/4, height*3/4);
+    light_dir.normalize();
+    Shader shader;
+    //shader.uniform_M   =  projection*view*modelTras;
+    //shader.uniform_MIT = (projection*view*modelTras).invert_transpose();
+    TGAImage zbuffer(width, height, TGAImage::GRAYSCALE);
+
     for (int i=0; i<model->nfaces(); i++) {
-        std::vector<int> face = model->face(i);
-        std::vector<int> faceUv = model->faceUv(i);
         Vec3f screen_coords[3];
-        Vec2f text_coords[3];
-        Vec3f world_coords[3];
         for (int j=0; j<3; j++) {
-            Vec3f v = model->vert(face[j]);
-            Vec2f uv = model->text_coord(faceUv[j]);
-            screen_coords[j] = Vec3f((v.x+1.)*width/2., (v.y+1.)*height/2.,v.z);
-            text_coords[j] = Vec2f(uv.x, uv.y);
-            world_coords[j]  = v;
+            screen_coords[j] = shader.vertex(i,j);
         }
-        Vec3f n = (world_coords[2]-world_coords[0])^(world_coords[1]-world_coords[0]);
-        n.normalize();
-        float intensity = n*light_dir;
-        if (intensity>0) {
-            triangle(mvp,text_coords,zbuffer,screen_coords,image,textrueImage, TGAColor(intensity*255, intensity*255, intensity*255, 255));
-        }
-    }
-    image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
+        triangle(screen_coords, shader, image, zbuffer);
+     }
+    image.flip_vertically(); 
+    zbuffer.flip_vertically();
     image.write_tga_file("output.tga");
+    zbuffer.write_tga_file("buffer.tga");
     delete model;
     return 0;
 }

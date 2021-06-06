@@ -1,14 +1,20 @@
 #include "geometry.h"
-class mvpTransform{
-  public:
-    mvpTransform();
-    void set_model(float rotation_angle);
-    void set_view(vec3 eye_pos);
-    void set_projection(float eye_fov, float aspect_ratio,float zNear, float zFar);
-    mat<4,4> get_mvp_Mat();
-  private:
-    mat<4,4> model;
-    mat<4,4> view;
-    mat<4,4> projection;
-    mat<4,4> mvp;
+#include "tgaimage.h"
+extern Matrix modelTras;
+extern Matrix view;
+extern Matrix projection;
+extern Matrix viewport;
+struct IShader {
+    virtual ~IShader();
+    virtual Vec3f vertex(int iface, int nthvert) = 0;
+    virtual bool fragment(Vec3f bar, TGAColor &color) = 0;
 };
+void set_model(float rotation_angle);
+void set_view(Vec3f eye, Vec3f center, Vec3f up);
+void set_projection(float coeff);
+void set_viewport(int x, int y, int w, int h);
+void triangle(Vec3f *pts, IShader &shader, TGAImage &image, TGAImage &zbuffer);
+//void triangle(Vec2f *text_coords, float *zbuffer, Vec3f pts[3], TGAImage &image, TGAImage &textrueImage, TGAColor color);
+Vec3f barycentric(Vec3f * pts, Vec3f P);
+Vec4f v3tov4(Vec3f v);
+Vec3f v4tov3(Vec4f v);
