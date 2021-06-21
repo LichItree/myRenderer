@@ -1,4 +1,4 @@
-#include "mvp.h"
+#include "pipeLine.h"
 #include <limits>
 Matrix modelTras = Matrix::identity();
 Matrix view = Matrix::identity();
@@ -79,14 +79,6 @@ void triangle(Vec3f *pts, IShader &shader, TGAImage &image, float* zbuffer) {
     }
 }
 
-Vec4f v3tov4(Vec3f v) {
-    Vec4f m;
-    m[0] = v.x;
-    m[1] = v.y;
-    m[2] = v.z;
-    m[3] = 1.f;
-    return m;
-}
 Vec3f v4tov3(Vec4f v) {
     Vec3f m;
     m[0] = v[0]/v[3];

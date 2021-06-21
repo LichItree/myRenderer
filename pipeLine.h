@@ -15,7 +15,5 @@ void set_view(Vec3f eye, Vec3f center, Vec3f up);
 void set_projection(float coeff);
 void set_viewport(int x, int y, int w, int h);
 void triangle(Vec3f *pts, IShader &shader, TGAImage &image, float* zbuffer);
-//void triangle(Vec2f *text_coords, float *zbuffer, Vec3f pts[3], TGAImage &image, TGAImage &textrueImage, TGAColor color);
 Vec3f barycentric(Vec3f * pts, Vec3f P);
-Vec4f v3tov4(Vec3f v);
 Vec3f v4tov3(Vec4f v);
